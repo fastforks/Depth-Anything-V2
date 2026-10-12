@@ -184,6 +184,21 @@ class DepthAnythingV2(nn.Module):
         return depth.squeeze(1)
     
     @torch.no_grad()
+    def infer_tensor(self, image, input_size=518):
+        """GPU in / GPU out version of infer_image: image = RGB [3, H, W] (uint8 or 0..255 float) on the model's device ->
+        relative disparity [H, W] fp32 on the device. Resize (bicubic = cv2 INTER_CUBIC, lower bound input_size, multiple
+        of 14) and normalization run on the GPU."""
+        h, w = image.shape[-2:]
+        nw, nh = Resize(width=input_size, height=input_size, resize_target=False, keep_aspect_ratio=True,
+                        ensure_multiple_of=14, resize_method='lower_bound').get_size(w, h)
+        x = F.interpolate(image[None].float() / 255.0, (int(nh), int(nw)), mode="bicubic", align_corners=False)
+        mean = torch.tensor([0.485, 0.456, 0.406], device=x.device).view(1, 3, 1, 1)
+        std = torch.tensor([0.229, 0.224, 0.225], device=x.device).view(1, 3, 1, 1)
+        x = ((x - mean) / std).to(next(self.parameters()).dtype)
+        depth = self.forward(x)
+        return F.interpolate(depth[:, None].float(), (h, w), mode="bilinear", align_corners=True)[0, 0]
+
+    @torch.no_grad()
     def infer_image(self, raw_image, input_size=518):
         image, (h, w) = self.image2tensor(raw_image, input_size)
         
