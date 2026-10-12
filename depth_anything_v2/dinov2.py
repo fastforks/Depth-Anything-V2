@@ -23,6 +23,32 @@ from .dinov2_layers import Mlp, PatchEmbed, SwiGLUFFNFused, MemEffAttention, Nes
 logger = logging.getLogger("dinov2")
 
 
+def _bicubic_matrix(size_px, patch_size, scale, M, device, native=None):
+    """[size_px // patch_size, M] matrix of PyTorch's bicubic upsampling (align_corners=False, A=-0.75, border clamp) with
+    the given scale_factor: source = (i + 0.5) * float32(1 / scale) - 0.5 (as upsample_bicubic2d)."""
+    n = size_px // patch_size
+    i = torch.arange(n, device=device, dtype=torch.float32)
+    inv_scale = 1.0 / scale
+    if native is not None:
+        # Round the original reciprocal only once, as in the eager scalar path.
+        inv_scale = torch.where(native, 1.0, i.new_ones(()) * inv_scale)
+    src = (i + 0.5) * inv_scale - 0.5
+    x0 = torch.floor(src)
+    t = src - x0
+    A = -0.75
+    def near(d):  # |d| <= 1
+        return ((A + 2) * d - (A + 3)) * d * d + 1
+    def far(d):   # 1 < |d| < 2
+        return ((A * d - 5 * A) * d + 8 * A) * d - 4 * A
+    coeffs = (far(t + 1), near(t), near(1 - t), far(2 - t))
+    cols = torch.arange(M, device=device)
+    mat = torch.zeros((n, M), device=device, dtype=torch.float32)
+    for k, c in enumerate(coeffs):
+        idx = (x0.long() - 1 + k).clamp(0, M - 1)
+        mat = mat + c[:, None] * (idx[:, None] == cols[None, :]).float()
+    return mat
+
+
 def named_apply(fn: Callable, module: nn.Module, name="", depth_first=True, include_root=False) -> nn.Module:
     if not depth_first and include_root:
         fn(module=module, name=name)
@@ -180,7 +206,7 @@ class DinoVisionTransformer(nn.Module):
         previous_dtype = x.dtype
         npatch = x.shape[1] - 1
         N = self.pos_embed.shape[1] - 1
-        if npatch == N and w == h:
+        if not torch.compiler.is_exporting() and npatch == N and w == h:  # (shape test skipped while exporting: dynamic sizes)
             return self.pos_embed
         pos_embed = self.pos_embed.float()
         class_pos_embed = pos_embed[:, 0]
@@ -191,21 +217,26 @@ class DinoVisionTransformer(nn.Module):
         # we add a small number to avoid floating point error in the interpolation
         # see discussion at https://github.com/facebookresearch/dino/issues/8
         # DINOv2 with register modify the interpolate_offset from 0.1 to 0.0
+        native = None
+        if torch.compiler.is_exporting() and not self.interpolate_antialias:
+            # Preserve the native-square identity shortcut in a dynamic graph.
+            one = pos_embed.new_ones(())
+            native = (one * npatch == N) & (one * w == one * h)
         w0, h0 = w0 + self.interpolate_offset, h0 + self.interpolate_offset
         # w0, h0 = w0 + 0.1, h0 + 0.1
         
         sqrt_N = math.sqrt(N)
-        sx, sy = float(w0) / sqrt_N, float(h0) / sqrt_N
-        patch_pos_embed = nn.functional.interpolate(
-            patch_pos_embed.reshape(1, int(sqrt_N), int(sqrt_N), dim).permute(0, 3, 1, 2),
-            scale_factor=(sx, sy),
-            # (int(w0), int(h0)), # to solve the upsampling shape issue
-            mode="bicubic",
-            antialias=self.interpolate_antialias
-        )
-        
-        assert int(w0) == patch_pos_embed.shape[-2]
-        assert int(h0) == patch_pos_embed.shape[-1]
+        sx, sy = w0 / sqrt_N, h0 / sqrt_N
+        M = int(sqrt_N)
+        grid = patch_pos_embed.reshape(1, M, M, dim).permute(0, 3, 1, 2)
+        if self.interpolate_antialias:
+            patch_pos_embed = nn.functional.interpolate(grid, scale_factor=(float(sx), float(sy)), mode="bicubic", antialias=True)
+        else:
+            # == F.interpolate(grid, scale_factor=(sx, sy), mode="bicubic") as two interpolation matrices built from the
+            # output size: no Python float of the token grid size, so it traces with dynamic shapes (export)
+            ry = _bicubic_matrix(w, self.patch_size, sx, M, grid.device, native)
+            rx = _bicubic_matrix(h, self.patch_size, sy, M, grid.device, native)
+            patch_pos_embed = (ry @ grid @ rx.T).contiguous()
         patch_pos_embed = patch_pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
         return torch.cat((class_pos_embed.unsqueeze(0), patch_pos_embed), dim=1).to(previous_dtype)
 
