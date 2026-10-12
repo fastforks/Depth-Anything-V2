@@ -150,6 +150,22 @@ class DPTHead(nn.Module):
         return out
 
 
+class _Float32(nn.Module):
+    """runs the wrapped module in fp32 (input cast up; the output stays fp32: depth precision)"""
+    def __init__(self, m):
+        super().__init__()
+        self.m = m.float()
+
+    def forward(self, x):
+        with torch.autocast(device_type=x.device.type, enabled=False):
+            return self.m(x.float())
+
+    def _apply(self, fn, recurse=True):  # keep fp32 when the parent model is cast with .half()
+        super()._apply(fn, recurse)
+        self.m.float()
+        return self
+
+
 class DepthAnythingV2(nn.Module):
     def __init__(
         self, 
@@ -183,6 +199,14 @@ class DepthAnythingV2(nn.Module):
         
         return depth.squeeze(1)
     
+    def prepare_half(self):
+        """Inference in fp16: weights cast once; the last 1x1 conv of the head (1 output channel) runs in fp32."""
+        self.half().eval()
+        oc2 = self.depth_head.scratch.output_conv2
+        if not isinstance(oc2[2], _Float32):
+            oc2[2] = _Float32(oc2[2])
+        return self
+
     @torch.no_grad()
     def infer_tensor(self, image, input_size=518):
         """GPU in / GPU out version of infer_image: image = RGB [3, H, W] (uint8 or 0..255 float) on the model's device ->
@@ -202,7 +226,7 @@ class DepthAnythingV2(nn.Module):
     def infer_image(self, raw_image, input_size=518):
         image, (h, w) = self.image2tensor(raw_image, input_size)
         
-        depth = self.forward(image)
+        depth = self.forward(image.to(next(self.parameters()).dtype))
         
         depth = F.interpolate(depth[:, None], (h, w), mode="bilinear", align_corners=True)[0, 0]
         
