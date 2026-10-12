@@ -141,8 +141,10 @@ class FeatureFusionBlock(nn.Module):
         else:
             modifier = {"size": size}
 
-        output = nn.functional.interpolate(output, **modifier, mode="bilinear", align_corners=self.align_corners)
-        
+        # 1x1 out_conv before the bilinear upsample: both are linear and per-pixel / per-channel respectively, so they
+        # commute (exact up to rounding); the conv runs on 4x fewer pixels
         output = self.out_conv(output)
+
+        output = nn.functional.interpolate(output, **modifier, mode="bilinear", align_corners=self.align_corners)
 
         return output
