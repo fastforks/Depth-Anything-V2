@@ -20,25 +20,29 @@ RTX 5060 Ti 16 GB, PyTorch 2.14.1+cu130, 2026-10-12; one 1482x994 image; cold pr
 
 **ViT-L**
 
-| version | ms 518 | ms 1024 | speed-up 518 / 1024 | peak MB at 518 | peak MB at 1024 | startup / first call / new size | weights MB | NYU AbsRel |
+| version | ms 518 | ms 1024 | speed-up 518 ; 1024 (vs flags / vs upstream) | peak MB at 518 | peak MB at 1024 | startup / first call / new size | weights MB | NYU AbsRel |
 |---|---|---|---|---|---|---|---|---|
-| upstream (fp32) | 243.9 | 605.0 | 1.00x / 1.00x | 2106 / 2528 | 3077 / 4916 | 5.5 s / 398 ms / 601 ms | 1279 | 0.04388 |
-| **portable**, fp32 | 204.8 | 483.7 | 1.19x / 1.25x | 2112 / 2492 | 2740 / 3190 | 5.4 s / 396 ms / 486 ms | 1279 | 0.04388 |
-| **portable** + `prepare_half()` | 55.9 | 113.9 | 4.36x / 5.31x | 1081 / 1742 | 1394 / 1842 | 5.5 s / 411 ms / 118 ms | 640 | 0.04388 |
-| **cuda-kernels** | 38.6 | 75.0 | 6.32x / 8.06x | 992 / 1546 | 1240 / 1458 | 5.4 s / 397 ms / 106 ms | 640 | 0.04388 |
-| **cuda-kernels** + `hacc` | 34.9 | 69.4 | 7.00x / 8.72x | 993 / 1546 | 1247 / 1458 | 5.5 s / 338 ms / 134 ms | 640 | 0.04388 |
+| upstream (fp32) | 243.9 | 605.0 | 0.42x / 1.00x ; 0.44x / 1.00x | 2106 / 2528 | 3077 / 4916 | 5.5 s / 398 ms / 601 ms | 1279 | 0.04388 |
+| upstream + flags (`cudnn.benchmark`, `model.half()` with half input) | 101.4 | 267.5 | 1.00x / 2.41x ; 1.00x / 2.26x | 1080 / 1268 | 1568 / 2106 | 5.4 s / 1102 ms / 988 ms | 640 | 0.04388 |
+| **portable**, fp32 | 204.8 | 483.7 | 0.50x / 1.19x ; 0.55x / 1.25x | 2112 / 2492 | 2740 / 3190 | 5.4 s / 396 ms / 486 ms | 1279 | 0.04388 |
+| **portable** + `prepare_half()` | 55.9 | 113.9 | 1.81x / 4.36x ; 2.35x / 5.31x | 1081 / 1742 | 1394 / 1842 | 5.5 s / 411 ms / 118 ms | 640 | 0.04388 |
+| **cuda-kernels** | 38.6 | 75.0 | 2.63x / 6.32x ; 3.57x / 8.06x | 992 / 1546 | 1240 / 1458 | 5.4 s / 397 ms / 106 ms | 640 | 0.04388 |
+| **cuda-kernels** + `hacc` | 34.9 | 69.4 | 2.91x / 7.00x ; 3.85x / 8.72x | 993 / 1546 | 1247 / 1458 | 5.5 s / 338 ms / 134 ms | 640 | 0.04388 |
 
 **ViT-S**
 
-| version | ms 518 | ms 1024 | speed-up 518 / 1024 | peak MB at 518 | peak MB at 1024 | startup / first call / new size | weights MB | NYU AbsRel |
+| version | ms 518 | ms 1024 | speed-up 518 ; 1024 (vs flags / vs upstream) | peak MB at 518 | peak MB at 1024 | startup / first call / new size | weights MB | NYU AbsRel |
 |---|---|---|---|---|---|---|---|---|
-| upstream (fp32) | 49.1 | 106.1 | 1.00x / 1.00x | 403 / 556 | 795 / 1110 | 2.3 s / 354 ms / 110 ms | 95 | 0.05094 |
-| **portable**, fp32 | 27.0 | 61.7 | 1.82x / 1.72x | 409 / 544 | 628 / 850 | 2.2 s / 371 ms / 62 ms | 95 | 0.05094 |
-| **portable** + `prepare_half()` | 8.7 | 16.7 | 5.64x / 6.36x | 226 / 302 | 338 / 410 | 2.2 s / 417 ms / 28 ms | 47 | 0.05094 |
-| **cuda-kernels** | 5.7 | 11.3 | 8.58x / 9.37x | 224 / 260 | 335 / 392 | 2.2 s / 422 ms / 46 ms | 47 | 0.05093 |
-| **cuda-kernels** + `hacc` | 6.5 | 10.8 | 7.59x / 9.78x | 225 / 260 | 337 / 392 | 2.3 s / 372 ms / 99 ms | 47 | 0.05093 |
+| upstream (fp32) | 49.1 | 106.1 | 0.66x / 1.00x ; 0.62x / 1.00x | 403 / 556 | 795 / 1110 | 2.3 s / 354 ms / 110 ms | 95 | 0.05094 |
+| upstream + flags (`cudnn.benchmark`, `model.half()` with half input) | 32.2 | 66.2 | 1.00x / 1.52x ; 1.00x / 1.60x | 225 / 372 | 425 / 580 | 2.2 s / 993 ms / 594 ms | 47 | 0.05093 |
+| **portable**, fp32 | 27.0 | 61.7 | 1.19x / 1.82x ; 1.07x / 1.72x | 409 / 544 | 628 / 850 | 2.2 s / 371 ms / 62 ms | 95 | 0.05094 |
+| **portable** + `prepare_half()` | 8.7 | 16.7 | 3.70x / 5.64x ; 3.96x / 6.36x | 226 / 302 | 338 / 410 | 2.2 s / 417 ms / 28 ms | 47 | 0.05094 |
+| **cuda-kernels** | 5.7 | 11.3 | 5.65x / 8.58x ; 5.86x / 9.37x | 224 / 260 | 335 / 392 | 2.2 s / 422 ms / 46 ms | 47 | 0.05093 |
+| **cuda-kernels** + `hacc` | 6.5 | 10.8 | 4.95x / 7.59x ; 6.13x / 9.78x | 225 / 260 | 337 / 392 | 2.3 s / 372 ms / 99 ms | 47 | 0.05093 |
 
 The fp32 rows keep upstream precision; the fp16 rows change it (NYU AbsRel within 1e-5 of upstream).
+
+Flags rows: driver-side only, no source edit (`model.half()` with half input plus `cudnn.benchmark`; start-up / first call / new size include the autotune). channels_last was not measured (ViT backbone, only the patch-embedding conv would change). Raw: `results/2026-10-23_flags_older_forks/` of the publishing workspace.
 
 Upstream here is the code path with `xformers` not installed (the `Attention` fallback). Not shipped: the CUTLASS fused-convolution extension of the original study (a torch-ABI-specific 29 MB binary; with it ViT-L takes 32.2 / 63.8 ms). Full results, commands and raw data: `results/2026-10-12_dav2_release/` of the publishing workspace.
 
